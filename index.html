@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Posto de Saúde v5.0 (Google Sheets)</title>
+    <!-- O restante do CSS e das bibliotecas é o mesmo -->
+    <style>
+        /* ... Todo o CSS da versão 4.3 vai aqui ... */
+        .loader-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); display: flex; align-items: center;
+            justify-content: center; z-index: 9999; color: white; font-size: 1.5rem;
+            flex-direction: column;
+        }
+        .loader {
+            border: 8px solid #f3f3f3; border-top: 8px solid #00A896;
+            border-radius: 50%; width: 60px; height: 60px;
+            animation: spin 2s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="loader" class="loader-overlay" style="display: none;">
+        <div class="loader"></div>
+        <p>Processando...</p>
+    </div>
+    <!-- O restante do HTML (sidebar, páginas, etc.) é o mesmo da v4.3 -->
+
+    <script>
+        // ***************************************************************
+        // COLE A URL DO SEU APLICATIVO WEB DO GOOGLE APPS SCRIPT AQUI
+        // ***************************************************************
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwzJILyjMx3PdP2Gvjv5PTQJHHW3SNzUMFEqVhZxTC9VwYJiOwXqosv83S-VrpKupZs/exec";
+
+        // --- BANCO DE DADOS, ESTADO E CONSTANTES ---
+        const ADMIN_PASSWORD = '159753';
+        let dbTestes = [];
+        let dbEstoque = [];
+        let proximoTesteId = 1;
+        let proximoEstoqueId = 1;
+        // ... (resto das variáveis)
+
+        // Função para mostrar/esconder o loader
+        function toggleLoader(show) {
+            document.getElementById('loader').style.display = show ? 'flex' : 'none';
+        }
+
+        // --- NOVA LÓGICA DE DADOS COM GOOGLE SHEETS ---
+        async function carregarDadosIniciais() {
+            toggleLoader(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'carregarDados' })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    // Mapeia os dados da planilha para o nosso formato de objeto
+                    dbEstoque = result.estoque.map(row => ({ id: row[0], tipo: row[1], lote: row[2], validade: row[3], quantidade: parseInt(row[4]) }));
+                    dbTestes = result.testes.map(row => ({ 
+                        id: row[1], tipo: row[2], nome: row[3], prontuario_cpf_id: row[4], nascimento: row[5],
+                        dataColeta: row[6], resultado: row[7], profissional: row[8], loteInfo: { lote: row[9] },
+                        detalhes_adicionais: row[10] 
+                    }));
+
+                    // Atualiza os IDs para evitar duplicatas
+                    proximoTesteId = dbTestes.length > 0 ? Math.max(...dbTestes.map(t => t.id)) + 1 : 1;
+                    proximoEstoqueId = dbEstoque.length > 0 ? Math.max(...dbEstoque.map(l => l.id)) + 1 : 1;
+
+                    showPage('dashboard');
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                alert('Falha ao carregar dados da planilha: ' + error.message);
+            } finally {
+                toggleLoader(false);
+            }
+        }
+
+        async function salvarTeste(tipo) {
+            // ... (A lógica de validação do formulário continua a mesma) ...
+            
+            // Cria o objeto do teste como antes
+            const teste = { /* ... preenche com dados do formulário ... */ };
+            teste.id = proximoTesteId; // Adiciona o ID
+
+            toggleLoader(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'salvarTeste', payload: teste })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    // Atualiza a interface localmente
+                    dbTestes.push(result.newRecord);
+                    const estoqueItem = dbEstoque.find(item => item.id == loteId);
+                    if (estoqueItem) estoqueItem.quantidade--;
+                    proximoTesteId++; // Incrementa o ID para o próximo
+                    alert('Teste salvo com sucesso na planilha!');
+                    showPage('dashboard');
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                alert('Erro ao salvar teste: ' + error.message);
+            } finally {
+                toggleLoader(false);
+            }
+        }
+
+        async function adicionarLote() {
+            // ... (A lógica de validação do formulário continua a mesma) ...
+
+            const novoLote = { /* ... preenche com dados do formulário ... */ };
+            novoLote.id = proximoEstoqueId; // Adiciona o ID
+
+            toggleLoader(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'adicionarLote', payload: novoLote })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    dbEstoque.push(result.newRecord);
+                    proximoEstoqueId++;
+                    alert('Lote salvo com sucesso na planilha!');
+                    renderizarEstoque();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                alert('Erro ao salvar lote: ' + error.message);
+            } finally {
+                toggleLoader(false);
+            }
+        }
+
+        // INICIALIZAÇÃO
+        document.addEventListener('DOMContentLoaded', () => {
+            updateAdminUI();
+            set_theme(localStorage.getItem('theme') || 'light-theme');
+            carregarDadosIniciais(); // <<-- MUDANÇA IMPORTANTE!
+        });
+
+        // O resto das funções (renderização, UI, etc.) continuam as mesmas da v4.3
+    </script>
+</body>
+</html>
